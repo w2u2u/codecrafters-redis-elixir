@@ -32,22 +32,30 @@ defmodule Server do
   end
 
   defp handle_connection(client) do
-    client
-    |> read_message()
-    |> IO.inspect(label: "Receive")
-    |> RedisParser.parse()
-    |> IO.inspect(label: "Command")
-    |> handle_command()
-    |> IO.inspect(label: "Response")
-    |> write_message(client)
+    case read_message(client) do
+      "Connection closed" ->
+        :ok
 
-    handle_connection(client)
+      message ->
+        message
+        |> IO.inspect(label: "Receive")
+        |> RedisProtocol.parse_command()
+        |> IO.inspect(label: "Command")
+        |> handle_command()
+        |> IO.inspect(label: "Response")
+        |> write_message(client)
+
+        handle_connection(client)
+    end
   end
 
   defp read_message(client) do
     case :gen_tcp.recv(client, 0) do
       {:ok, message} ->
         message
+
+      {:error, :closed} ->
+        "Connection closed"
 
       {:error, message} ->
         raise "Failed to read TCP message: #{message}"
@@ -57,7 +65,8 @@ defmodule Server do
 
   defp handle_command(cmd) do
     case cmd do
-      {:ping} -> "+PONG\r\n"
+      {:ping} -> "PONG" |> RedisProtocol.to_simple()
+      {:echo, message} -> message |> RedisProtocol.to_bulk()
       _ -> "+OK\r\n"
     end
   end
@@ -67,33 +76,41 @@ defmodule Server do
   end
 end
 
-defmodule RedisParser do
-  def parse(input),
+defmodule RedisProtocol do
+  def to_simple(string),
+    do: "+#{string}\r\n"
+
+  def to_bulk(string),
+    do: "$#{String.length(string)}\r\n#{string}\r\n"
+
+  def parse_command(input),
     do:
       input
       |> String.split("\r\n")
-      |> parse_lines([])
+      |> to_list([])
       |> Enum.reverse()
-      |> parse_command()
+      |> to_command()
 
-  defp parse_lines(["*" <> _length | rest], acc),
-    do: parse_lines(rest, acc)
+  defp to_list(["*" <> _length | rest], acc),
+    do: to_list(rest, acc)
 
-  defp parse_lines(["$" <> _length | [value | rest]], acc),
-    do: parse_lines(rest, [value | acc])
+  defp to_list(["$" <> _length | [value | rest]], acc),
+    do: to_list(rest, [value | acc])
 
-  defp parse_lines(["" | rest], acc),
-    do: parse_lines(rest, acc)
+  defp to_list(["" | rest], acc),
+    do: to_list(rest, acc)
 
-  defp parse_lines([value | rest], acc),
-    do: parse_lines(rest, [value | acc])
+  defp to_list([value | rest], acc),
+    do: to_list(rest, [value | acc])
 
-  defp parse_lines([], acc),
+  defp to_list([], acc),
     do: acc
 
-  defp parse_command([cmd]),
+  defp to_command([cmd]),
     do: {cmd |> String.downcase() |> String.to_atom()}
 
-  defp parse_command([cmd | args]),
-    do: {cmd |> String.downcase() |> String.to_atom(), args}
+  defp to_command([cmd | args]) do
+    cmd = cmd |> String.downcase() |> String.to_atom()
+    ([cmd] ++ args) |> List.to_tuple()
+  end
 end
