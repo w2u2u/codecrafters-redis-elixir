@@ -26,7 +26,7 @@ defmodule Server do
   defp accept_connection(socket) do
     {:ok, client} = :gen_tcp.accept(socket)
 
-    handle_connection(client)
+    Task.start(fn -> handle_connection(client) end)
 
     accept_connection(socket)
   end
@@ -40,6 +40,8 @@ defmodule Server do
     |> handle_command()
     |> IO.inspect(label: "Response")
     |> write_message(client)
+
+    handle_connection(client)
   end
 
   defp read_message(client) do
@@ -74,16 +76,24 @@ defmodule RedisParser do
       |> Enum.reverse()
       |> parse_command()
 
-  defp parse_lines(["*" <> _length | rest], acc), do: parse_lines(rest, acc)
+  defp parse_lines(["*" <> _length | rest], acc),
+    do: parse_lines(rest, acc)
 
-  defp parse_lines(["$" <> _length | [value | rest]], acc), do: parse_lines(rest, [value | acc])
+  defp parse_lines(["$" <> _length | [value | rest]], acc),
+    do: parse_lines(rest, [value | acc])
 
-  defp parse_lines(["" | rest], acc), do: parse_lines(rest, acc)
+  defp parse_lines(["" | rest], acc),
+    do: parse_lines(rest, acc)
 
-  defp parse_lines([value | rest], acc), do: parse_lines(rest, [value | acc])
+  defp parse_lines([value | rest], acc),
+    do: parse_lines(rest, [value | acc])
 
-  defp parse_lines([], acc), do: acc
+  defp parse_lines([], acc),
+    do: acc
 
-  defp parse_command([cmd]), do: {cmd |> String.downcase() |> String.to_atom()}
-  defp parse_command([cmd | args]), do: {cmd |> String.downcase() |> String.to_atom(), args}
+  defp parse_command([cmd]),
+    do: {cmd |> String.downcase() |> String.to_atom()}
+
+  defp parse_command([cmd | args]),
+    do: {cmd |> String.downcase() |> String.to_atom(), args}
 end
