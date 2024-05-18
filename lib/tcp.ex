@@ -56,20 +56,28 @@ defmodule Server.Tcp do
   defp handle_command(cmd) do
     case cmd do
       {:ping} ->
-        "PONG" |> RedisProtocol.to_simple()
+        "PONG" |> RedisProtocol.simple()
 
       {:get, key} ->
-        Server.Database.get(key) |> RedisProtocol.to_bulk()
+        case Server.Database.get(key) do
+          {:ok, value} -> value |> RedisProtocol.bulk()
+          {:notfound} -> RedisProtocol.bulk(:null)
+        end
+
+      {:set, key, value, _px, ms} ->
+        {ms, _} = Integer.parse(ms)
+        Server.Database.set(key, value, ms)
+        "OK" |> RedisProtocol.simple()
 
       {:set, key, value} ->
         Server.Database.set(key, value)
-        "OK" |> RedisProtocol.to_simple()
+        "OK" |> RedisProtocol.simple()
 
       {:echo, message} ->
-        message |> RedisProtocol.to_bulk()
+        message |> RedisProtocol.bulk()
 
       _ ->
-        "OK" |> RedisProtocol.to_simple()
+        "OK" |> RedisProtocol.simple()
     end
   end
 

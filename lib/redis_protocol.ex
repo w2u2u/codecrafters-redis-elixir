@@ -1,8 +1,11 @@
 defmodule RedisProtocol do
-  def to_simple(string),
+  def simple(string),
     do: "+#{string}\r\n"
 
-  def to_bulk(string),
+  def bulk(:null),
+    do: "$-1\r\n"
+
+  def bulk(string),
     do: "$#{String.length(string)}\r\n#{string}\r\n"
 
   def parse_command(input),
